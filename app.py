@@ -1,55 +1,52 @@
 import streamlit as st
 from docx import Document
-from docx.shared import Inches
+from docx.shared import Inches, Pt
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 import io
-import fitz  # PyMuPDF per leggere i PDF
+import fitz  # PyMuPDF
 from openai import OpenAI
 
-# Configurazione della pagina
-st.set_page_config(
-    page_title="KDP Master Tool", 
-    page_icon="📚", 
-    layout="wide"
-)
+st.set_page_config(page_title="KDP Pro Formatter", page_icon="📚", layout="wide")
 
-# --- CONFIGURAZIONE API OPENAI ---
-# Recupera la chiave dai Secrets di Streamlit
+# --- CONFIGURAZIONE API ---
 try:
     client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 except Exception as e:
-    st.error("⚠️ Errore: OpenAI API Key non trovata. Vai nei Settings di Streamlit -> Secrets e aggiungi OPENAI_API_KEY.")
+    st.error("Chiave API non configurata nei Secrets di Streamlit.")
     st.stop()
 
-# --- FUNZIONI TECNICHE ---
+# --- FUNZIONI DI ESTREZIONE E FORMATTAZIONE ---
 
 def extract_text(file, extension):
-    """Estrae il testo dal file per darlo in pasto all'AI"""
     text = ""
     if extension == "docx":
         doc = Document(file)
         text = "\n".join([p.text for p in doc.paragraphs])
     elif extension == "pdf":
         with fitz.open(stream=file.read(), filetype="pdf") as doc:
-            # Leggiamo le prime 15 pagine per il contesto
             for page in doc:
                 text += page.get_text()
-                if doc.page_count > 15 and page.number > 15:
-                    break
+                if page.number > 15: break # Limite per contesto AI
     return text
 
-def format_docx_kdp(file):
-    """Formatta il file Word con le specifiche KDP 6x9 pollici"""
+def format_entire_document(file):
     doc = Document(file)
+    
+    # 1. Impostazione globale Formato 6x9 e Margini per tutte le sezioni
     for section in doc.sections:
-        # Formato 6x9 pollici
         section.page_width = Inches(6)
         section.page_height = Inches(9)
-        
-        # Margini professionali KDP
         section.top_margin = Inches(0.75)
         section.bottom_margin = Inches(0.75)
-        section.left_margin = Inches(0.8)  # Gutter (margine interno rilegatura)
-        section.right_margin = Inches(0.5) # Margine esterno
+        section.left_margin = Inches(0.8)   # Margine interno (Gutter)
+        section.right_margin = Inches(0.5)  # Margine esterno
+        
+    # 2. Ottimizzazione stili testo per l'intero contenuto
+    for paragraph in doc.paragraphs:
+        # Giustifica il testo (standard per i libri)
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+        # Imposta interlinea singola o 1.15 per leggibilità
+        paragraph.paragraph_format.line_spacing = 1.15
         
     out_buffer = io.BytesIO()
     doc.save(out_buffer)
@@ -58,80 +55,70 @@ def format_docx_kdp(file):
 
 # --- INTERFACCIA UTENTE ---
 
-st.title("📚 KDP All-in-One: Formattazione & AI")
-st.markdown("""
-Questo strumento analizza il tuo libro (Word o PDF), genera i metadati per Amazon (Descrizione e Parole Chiave) 
-e formatta automaticamente il file Word per la stampa in **6x9 pollici**.
-""")
+st.title("📚 KDP Formatter & AI Metadata Expert")
+st.info("Carica il tuo manoscritto. L'AI genererà i testi per Amazon e il sistema formatterà l'intero documento (inclusi margini e layout dell'indice).")
 
-st.divider()
-
-# Caricamento file
-uploaded_file = st.file_uploader("Carica il tuo manoscritto (DOCX o PDF)", type=["docx", "pdf"])
+uploaded_file = st.file_uploader("Trascina qui il tuo file (DOCX o PDF)", type=["docx", "pdf"])
 
 if uploaded_file:
     file_ext = uploaded_file.name.split(".")[-1].lower()
     
-    # Creiamo due colonne per l'interfaccia
     col_ai, col_format = st.columns(2)
 
-    # 1. GENERAZIONE METADATI CON AI
     with col_ai:
-        st.header("🤖 Assistente Pubblicazione AI")
-        if st.button("Genera Metadati KDP"):
-            with st.spinner("L'AI sta leggendo il tuo libro..."):
-                try:
-                    # Estrazione testo
-                    content = extract_text(uploaded_file, file_ext)
-                    # Ripristina il file per l'uso successivo
-                    uploaded_file.seek(0)
-                    
-                    # Prompt ottimizzato per KDP
-                    prompt = f"""
-                    Sei un esperto di marketing Amazon KDP. Analizza il seguente testo estratto dal libro:
-                    ---
-                    {content[:8000]} 
-                    ---
-                    Genera:
-                    1. Una DESCRIZIONE libro persuasiva in formato HTML (usa <b>, <i>, <ul>, <li>).
-                    2. Una lista di 7 PAROLE CHIAVE (keyword phrases) ottimizzate per la SEO di Amazon.
-                    3. Suggerisci la CATEGORIA KDP più adatta.
-                    Rispondi in lingua ITALIANA.
-                    """
-                    
-                    response = client.chat.completions.create(
-                        model="gpt-4o",
-                        messages=[{"role": "system", "content": "Sei un esperto di self-publishing."},
-                                  {"role": "user", "content": prompt}]
-                    )
-                    
-                    st.success("✅ Analisi Completata!")
-                    st.markdown(response.choices[0].message.content)
-                    
-                except Exception as e:
-                    st.error(f"Errore durante l'analisi AI: {e}")
+        st.header("✍️ Descrizione e Parole Chiave")
+        if st.button("Analizza e Genera Testi"):
+            with st.spinner("L'AI sta analizzando il contenuto..."):
+                full_text = extract_text(uploaded_file, file_ext)
+                uploaded_file.seek(0)
 
-    # 2. FORMATTAZIONE FILE
+                prompt = f"""
+                Sei un esperto SEO di Amazon KDP. Analizza questo testo:
+                {full_text[:7000]}
+                
+                Genera:
+                1. DESCRIZIONE: Un testo persuasivo per la vendita con tag HTML (<b>, <i>, <ul>).
+                2. PAROLE CHIAVE: 7 frasi chiave SEO separate da virgola.
+                3. CATEGORIE: 2 categorie suggerite per KDP.
+                Rispondi in Italiano.
+                """
+
+                response = client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                
+                result = response.choices[0].message.content
+                st.success("Testi generati con successo!")
+                
+                # Visualizzazione testuale pronta per il copia-incolla
+                st.subheader("Copia da qui per Amazon KDP:")
+                st.code(result, language="html") 
+
     with col_format:
-        st.header("📄 Formattazione Manoscritto")
+        st.header("📄 Formattazione Integrale")
         if file_ext == "docx":
-            st.info("Formato rilevato: Word. Posso formattare i margini per il cartaceo 6x9.")
-            if st.button("Applica Formattazione KDP"):
-                with st.spinner("Formattazione in corso..."):
-                    # Processo di formattazione
-                    formatted_file = format_docx_kdp(uploaded_file)
+            st.write("Configurazione: **6x9 pollici**, margini ottimizzati per la rilegatura.")
+            if st.button("Formatta Intero Libro"):
+                with st.spinner("Rielaborazione layout in corso..."):
+                    formatted_docx = format_entire_document(uploaded_file)
                     uploaded_file.seek(0)
                     
-                    st.balloons()
+                    st.success("✅ Formattazione completata!")
+                    st.warning("⚠️ Nota: Quando apri il file in Word, clicca col tasto destro sull'Indice e seleziona 'Aggiorna campo -> Aggiorna intero sommario' per allineare i numeri di pagina.")
+                    
                     st.download_button(
-                        label="⬇️ Scarica Word Formattato (6x9)",
-                        data=formatted_file,
-                        file_name=f"KDP_6x9_{uploaded_file.name}",
+                        label="⬇️ Scarica File Pronto per KDP",
+                        data=formatted_docx,
+                        file_name=f"KDP_READY_{uploaded_file.name}",
                         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                     )
         else:
-            st.warning("⚠️ Nota: La formattazione automatica dei margini è disponibile solo per i file .docx.")
-            st.write("I file PDF sono 'fissi'. Per cambiare i margini di un PDF, devi modificare il file Word originale e ricaricarlo qui.")
+            st.error("La formattazione automatica richiede un file .docx. Per i PDF posso generare solo i metadati AI.")
 
-st.sidebar.markdown("---")
-st.sidebar.info("Sviluppato per autori Amazon KDP")
+st.sidebar.markdown("""
+### Istruzioni rapide:
+1. **Carica** il tuo file.
+2. **Genera i metadati**: Copia il codice HTML risultante nella sezione 'Descrizione' di Amazon KDP.
+3. **Formatta**: Scarica il file Word e caricalo nella sezione 'Contenuto Manoscritto' di KDP.
+""")
