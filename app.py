@@ -3,24 +3,39 @@ from docx import Document
 from docx.shared import Inches, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 import io
-import re
-import fitz
+import fitz  # PyMuPDF
 from openai import OpenAI
 
-st.set_page_config(page_title="KDP Content Editor PRO", layout="wide")
+st.set_page_config(page_title="KDP Ultimate Formatter", layout="wide")
 
 # --- CONFIGURAZIONE AI ---
 try:
     client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 except Exception as e:
-    st.error("Configura OPENAI_API_KEY nei Secrets di Streamlit.")
+    st.error("Errore: OPENAI_API_KEY non trovata nei Secrets di Streamlit.")
     st.stop()
 
-# --- FUNZIONE AVANZATA DI SISTEMAZIONE CONTENUTO ---
-def clean_and_format_kdp(file):
+# --- FUNZIONI DI SUPPORTO ---
+
+def extract_text_for_ai(file, extension):
+    """Estrae il testo per l'analisi AI (fino a 10.000 caratteri)"""
+    text = ""
+    if extension == "docx":
+        doc = Document(file)
+        # Prende i paragrafi più significativi
+        text = "\n".join([p.text for p in doc.paragraphs if len(p.text) > 20][:100])
+    elif extension == "pdf":
+        with fitz.open(stream=file.read(), filetype="pdf") as doc:
+            for page in doc:
+                text += page.get_text()
+                if page.number > 20: break
+    return text
+
+def advanced_kdp_processing(file):
+    """Sitema layout, pulisce Markdown e rimuove spazi vuoti tra capitoli"""
     doc = Document(file)
     
-    # 1. Impostazione Pagina 6x9
+    # 1. Setup Pagina 6x9
     for section in doc.sections:
         section.page_width = Inches(6)
         section.page_height = Inches(9)
@@ -29,98 +44,111 @@ def clean_and_format_kdp(file):
         section.left_margin = Inches(0.8)
         section.right_margin = Inches(0.5)
 
-    paragraphs = doc.paragraphs
-    prev_text = ""
-
-    # Usiamo un ciclo per poter rimuovere elementi se necessario
-    for i in range(len(paragraphs)):
-        p = paragraphs[i]
-        original_text = p.text.strip()
+    # 2. Pulizia e Formattazione
+    # Usiamo una lista per identificare i paragrafi da rimuovere (quelli vuoti di troppo)
+    paragraphs_to_remove = []
+    
+    for i, para in enumerate(doc.paragraphs):
+        text = para.text.strip()
         
-        # A. RIMOZIONE ARTEFATTI MARKDOWN E PULIZIA SPAZI
-        # Rimuove **, ##, ### e spazi doppi
-        clean_text = original_text.replace("**", "").replace("##", "").replace("###", "")
-        clean_text = " ".join(clean_text.split())
-        p.text = clean_text
-
-        # B. ELIMINAZIONE TITOLI DOPPI / RIDONDANTI
-        # Se il testo è quasi uguale al precedente (es. "Capitolo 1" e poi "1. Capitolo 1"), svuota il secondo
-        if clean_text.upper() == prev_text.upper() and len(clean_text) > 2:
-            p.text = ""
+        # RIMOZIONE SPAZI VUOTI ECCESSIVI
+        # Se il paragrafo è vuoto e quello precedente era vuoto, lo segniamo per la rimozione
+        if i > 0 and not text and not doc.paragraphs[i-1].text.strip():
+            paragraphs_to_remove.append(para)
             continue
-        
-        # C. LOGICA DI STILE (CAPITOLI E SOTTOTITOLI)
-        if "CAPITOLO" in clean_text.upper() or (original_text.startswith("#") and len(clean_text) < 60):
-            p.style = 'Heading 1'
-            p.paragraph_format.page_break_before = True
-            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            p.paragraph_format.space_after = Pt(18)
-        elif len(clean_text) < 50 and (original_text.startswith("##") or clean_text[0:3].replace(".","").isdigit()):
-            # Riconosce sottotitoli come 1.1, 1.2 o righe brevi
-            p.style = 'Heading 2'
-            p.alignment = WD_ALIGN_PARAGRAPH.LEFT
-            p.paragraph_format.space_before = Pt(12)
-        else:
-            # D. TESTO CORPO (GIUSTIFICATO)
-            if len(clean_text) > 0:
-                p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-                p.paragraph_format.first_line_indent = Inches(0.2)
-                p.paragraph_format.line_spacing = 1.15
-        
-        if clean_text:
-            prev_text = clean_text
 
-    # Rimuove i paragrafi rimasti vuoti dopo la pulizia
-    for p in doc.paragraphs:
-        if not p.text.strip() and p.style.name != 'Heading 1':
-            # Nota: python-docx non elimina facilmente, ma possiamo ridurne l'ingombro
-            p.paragraph_format.space_before = Pt(0)
-            p.paragraph_format.space_after = Pt(0)
+        # Pulizia Markdown e simboli
+        clean_text = text.replace("**", "").replace("##", "").replace("###", "").replace("#", "")
+        para.text = " ".join(clean_text.split())
+
+        # Gestione Capitoli
+        if "CAPITOLO" in para.text.upper() or (len(para.text) < 50 and para.text.isupper()):
+            para.style = 'Heading 1'
+            para.paragraph_format.page_break_before = True # Forza inizio pagina
+            para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            para.paragraph_format.space_before = Pt(0) # Rimuove spazi vuoti sopra il titolo
+            para.paragraph_format.space_after = Pt(24)
+        else:
+            # Testo Corpo
+            if para.text.strip():
+                para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+                para.paragraph_format.first_line_indent = Inches(0.2)
+                para.paragraph_format.line_spacing = 1.15
+                para.paragraph_format.space_before = Pt(0)
+                para.paragraph_format.space_after = Pt(6)
+
+    # Nota: Rimuovere fisicamente i paragrafi in python-docx è complesso, 
+    # quindi settiamo a zero l'altezza dei paragrafi vuoti inutili
+    for p in paragraphs_to_remove:
+        p.text = ""
+        p.paragraph_format.line_spacing = Pt(1)
+        p.paragraph_format.space_before = Pt(0)
+        p.paragraph_format.space_after = Pt(0)
 
     out_buffer = io.BytesIO()
     doc.save(out_buffer)
     out_buffer.seek(0)
     return out_buffer
 
-# --- INTERFACCIA STREAMLIT ---
-st.title("📖 Editor Editoriale KDP")
-st.markdown("Questo strumento pulisce il codice Markdown, elimina i titoli doppi e formatta il libro per la stampa professionale.")
+# --- INTERFACCIA ---
+st.title("🚀 KDP All-in-One: Analisi Profonda & Formattazione")
+st.markdown("Carica Word o PDF per ricevere metadati dettagliati e un file Word perfettamente pulito.")
 
-uploaded_file = st.file_uploader("Carica il file .docx", type=["docx"])
+uploaded_file = st.file_uploader("Carica Manoscritto", type=["docx", "pdf"])
 
 if uploaded_file:
+    file_ext = uploaded_file.name.split(".")[-1].lower()
+    
     col1, col2 = st.columns(2)
 
     with col1:
-        st.header("🤖 Metadati (Solo Testo)")
-        if st.button("Genera Descrizione e Keyword"):
-            with st.spinner("L'AI sta analizzando il manoscritto..."):
-                doc_temp = Document(uploaded_file)
-                text_sample = "\n".join([p.text for p in doc_temp.paragraphs[:40]])
+        st.header("🔍 Analisi Editoriale AI")
+        if st.button("Genera Metadati Dettagliati"):
+            with st.spinner("Analisi approfondita del contenuto..."):
+                extracted_text = extract_text_for_ai(uploaded_file, file_ext)
                 uploaded_file.seek(0)
 
                 prompt = f"""
-                Analizza questo libro: {text_sample[:5000]}
-                Genera in lingua ITALIANA e in FORMATO TESTO SEMPLICE (ASSOLUTAMENTE NO HTML, NO TAG):
-                1) DESCRIZIONE: Un testo di vendita avvincente.
-                2) KEYWORDS: 7 parole chiave separate da virgola.
-                3) CATEGORIE: 2 categorie KDP.
+                Sei un consulente marketing per autori Amazon KDP di alto livello.
+                Analizza attentamente questo contenuto:
+                ---
+                {extracted_text[:9000]}
+                ---
+                Genera in lingua ITALIANA e in FORMATO TESTO SEMPLICE (ASSOLUTAMENTE NO HTML):
+
+                1. DESCRIZIONE DETTAGLIATA (Minimo 300 parole): 
+                   - Un gancio iniziale (hook) potente.
+                   - Una spiegazione approfondita di cosa imparerà il lettore o della trama.
+                   - Una sezione 'Perché leggere questo libro' con punti elenco (usa il trattino -).
+                   - Una call to action finale.
+
+                2. PAROLE CHIAVE SEO (10 frasi): 
+                   - Usa parole chiave a 'coda lunga' (es. "come smettere di fumare senza ingrassare" invece di solo "fumo").
+
+                3. PUBBLICO TARGET: Definisci esattamente chi è il lettore ideale.
+
+                4. SUGGERIMENTO PREZZO: Indica un range di prezzo basato sul valore percepito.
                 """
                 
                 resp = client.chat.completions.create(
                     model="gpt-4o",
-                    messages=[{"role": "user", "content": prompt}]
+                    messages=[{"role": "system", "content": "Sei un esperto di self-publishing professionale."},
+                              {"role": "user", "content": prompt}]
                 )
-                st.text_area("Copia per KDP:", value=resp.choices[0].message.content, height=350)
+                st.subheader("Testi per Amazon (Copia-Incolla)")
+                st.text_area("Risultato:", value=resp.choices[0].message.content, height=500)
 
     with col2:
-        st.header("🛠️ Pulizia Contenuto")
-        if st.button("Sitema Contenuto e Layout"):
-            with st.spinner("Riparazione testo in corso..."):
-                cleaned_docx = clean_and_format_kdp(uploaded_file)
-                st.success("✅ Pulizia completata! Simboli Markdown rimossi e titoli sistemati.")
-                st.download_button(
-                    label="⬇️ Scarica Manoscritto Pulito",
-                    data=cleaned_docx,
-                    file_name=f"KDP_CLEAN_{uploaded_file.name}"
-                )
+        st.header("🛠️ Formattazione & Pulizia")
+        if file_ext == "docx":
+            if st.button("Sistema Layout e Spazi"):
+                with st.spinner("Eliminazione spazi vuoti e correzione margini..."):
+                    processed_doc = advanced_kdp_processing(uploaded_file)
+                    st.success("✅ Documento ottimizzato!")
+                    st.download_button(
+                        label="⬇️ Scarica Manoscritto KDP",
+                        data=processed_doc,
+                        file_name=f"KDP_READY_{uploaded_file.name}"
+                    )
+        else:
+            st.info("I file PDF possono essere analizzati dall'AI (Colonna sinistra), ma per la formattazione dei capitoli e degli spazi carica la versione .docx.")
