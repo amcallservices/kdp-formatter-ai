@@ -9,6 +9,17 @@ from openai import OpenAI
 
 st.set_page_config(page_title="KDP Professional Tool", layout="wide")
 
+# --- RIGHE AGGIUNTE: NASCONDE IL MENU IN ALTO A DESTRA E IL FOOTER ---
+hide_streamlit_style = """
+<style>
+#MainMenu {visibility: hidden;}
+header {visibility: hidden;}
+footer {visibility: hidden;}
+</style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+# ---------------------------------------------------------------------
+
 try:
     client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 except Exception:
@@ -80,7 +91,8 @@ def impeccable_format(file):
     return out_buffer
 
 # --- INTERFACCIA ---
-st.title("🛡️ KDP Master Tool")
+# TITOLO MODIFICATO COME RICHIESTO
+st.title("FORMATTA IL TUO LIBRO !")
 
 uploaded_file = st.file_uploader("Carica Manoscritto", type=["docx", "pdf"])
 
