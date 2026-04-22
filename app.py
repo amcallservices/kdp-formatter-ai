@@ -2,7 +2,7 @@ import streamlit as st
 from docx import Document
 from docx.shared import Inches, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.enum.style import WD_STYLE_TYPE  # <-- IMPORTANTE: Aggiunto per gestire gli stili mancanti
+from docx.enum.style import WD_STYLE_TYPE  # Necessario per evitare l'errore "KeyError: no style"
 from docx.oxml import OxmlElement, ns
 import io
 import fitz
@@ -53,24 +53,25 @@ def add_page_numbers(doc):
 def impeccable_format(file):
     doc = Document(file)
     
-    # --- FIX ERRORE: CREA GLI STILI SE IL DOCUMENTO ORIGINALE NE È SPROVVISTO ---
+    # Crea gli stili se il documento originale ne è sprovvisto (Previene il crash dell'app)
     for style_name in ['Heading 1', 'Heading 2']:
         try:
             doc.styles[style_name]
         except KeyError:
             doc.styles.add_style(style_name, WD_STYLE_TYPE.PARAGRAPH)
-    # ----------------------------------------------------------------------------
 
     for section in doc.sections:
         section.page_width = Inches(6)
         section.page_height = Inches(9)
+        # --- MARGINI SIMMETRICI (Tutti i lati uguali) ---
         section.top_margin = Inches(0.75)
         section.bottom_margin = Inches(0.75)
-        section.left_margin = Inches(0.8)
-        section.right_margin = Inches(0.5)
+        section.left_margin = Inches(0.75)
+        section.right_margin = Inches(0.75)
+        # ------------------------------------------------
 
     for p in list(doc.paragraphs):
-        # SALVA L'INTERLINEA ORIGINALE DEL DOCUMENTO
+        # Salva l'interlinea originale del documento
         spazio_originale = p.paragraph_format.line_spacing
         regola_spazio_originale = p.paragraph_format.line_spacing_rule
 
@@ -88,7 +89,6 @@ def impeccable_format(file):
             p.paragraph_format.space_before = Pt(0)
             p.paragraph_format.space_after = Pt(30)
             
-        # PER I SOTTOCAPITOLI
         elif len(p.text) < 80 and p.text[0].isdigit() and " " in p.text:
             p.style = 'Heading 2'
             p.alignment = WD_ALIGN_PARAGRAPH.LEFT
@@ -100,7 +100,7 @@ def impeccable_format(file):
             p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
             p.paragraph_format.first_line_indent = Inches(0.25)
             
-            # RIAPPLICA LO SPAZIO TRA LE RIGHE ORIGINALE
+            # Riapplica lo spazio tra le righe originale
             if spazio_originale is not None:
                 p.paragraph_format.line_spacing = spazio_originale
             if regola_spazio_originale is not None:
