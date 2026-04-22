@@ -60,6 +60,11 @@ def impeccable_format(file):
         section.right_margin = Inches(0.5)
 
     for p in list(doc.paragraphs):
+        # --- RIGHE AGGIUNTE: SALVA L'INTERLINEA ORIGINALE DEL DOCUMENTO ---
+        spazio_originale = p.paragraph_format.line_spacing
+        regola_spazio_originale = p.paragraph_format.line_spacing_rule
+        # ------------------------------------------------------------------
+
         text = p.text.strip()
         if not text:
             delete_paragraph(p)
@@ -86,7 +91,15 @@ def impeccable_format(file):
         else:
             p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
             p.paragraph_format.first_line_indent = Inches(0.25)
-            p.paragraph_format.line_spacing = 1.15
+            
+            # --- RIGHE AGGIUNTE: RIAPPLICA LO SPAZIO TRA LE RIGHE ORIGINALE ---
+            # Questa logica sostituisce la forzatura precedente (line_spacing = 1.15)
+            if spazio_originale is not None:
+                p.paragraph_format.line_spacing = spazio_originale
+            if regola_spazio_originale is not None:
+                p.paragraph_format.line_spacing_rule = regola_spazio_originale
+            # ------------------------------------------------------------------
+            
             p.paragraph_format.space_after = Pt(6)
 
     for style in doc.styles:
