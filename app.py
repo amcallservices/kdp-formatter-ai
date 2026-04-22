@@ -66,12 +66,23 @@ def impeccable_format(file):
             continue
         clean_text = text.replace("**", "").replace("##", "").replace("#", "")
         p.text = " ".join(clean_text.split())
+        
         if len(p.text) < 60 and ("CAPITOLO" in p.text.upper() or p.text.isupper()):
             p.style = 'Heading 1'
             p.paragraph_format.page_break_before = True
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             p.paragraph_format.space_before = Pt(0)
             p.paragraph_format.space_after = Pt(30)
+            
+        # --- RIGHE AGGIUNTE PER I SOTTOCAPITOLI ---
+        elif len(p.text) < 80 and p.text[0].isdigit() and " " in p.text:
+            p.style = 'Heading 2'
+            p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            p.paragraph_format.first_line_indent = Inches(0) # Nessun rientro per il titolo
+            p.paragraph_format.space_before = Pt(18) # Spazio dal paragrafo precedente
+            p.paragraph_format.space_after = Pt(14)  # Crea la riga vuota prima del testo
+        # ------------------------------------------
+        
         else:
             p.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
             p.paragraph_format.first_line_indent = Inches(0.25)
