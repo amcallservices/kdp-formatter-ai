@@ -131,8 +131,14 @@ if uploaded_file:
 
     with col1:
         st.header("✍️ Generazione Metadati")
+        
+        # --- RIGHE AGGIUNTE: SCELTA DELLA LINGUA ---
+        lingue_disponibili = ["Italiano", "Inglese", "Spagnolo", "Francese", "Tedesco", "Rumeno", "Russo", "Arabo", "Cinese"]
+        lingua_scelta = st.selectbox("Seleziona la lingua di traduzione/generazione:", lingue_disponibili)
+        # -------------------------------------------
+
         if st.button("Genera Metadati Dettagliati"):
-            with st.spinner("Generazione in corso..."):
+            with st.spinner(f"Generazione in {lingua_scelta} in corso..."):
                 context = ""
                 if file_ext == "docx":
                     d = Document(uploaded_file)
@@ -142,10 +148,11 @@ if uploaded_file:
                         for page in pdf[:15]: context += page.get_text()
                 uploaded_file.seek(0)
 
+                # --- RIGHE MODIFICATE: LINGUA DINAMICA E 7 PAROLE CHIAVE ---
                 prompt = f"""
                 Analizza questo libro: {context[:8000]}
                 
-                Genera esclusivamente il contenuto finale in lingua ITALIANA e in TESTO SEMPLICE. 
+                Genera esclusivamente il contenuto finale in lingua {lingua_scelta.upper()} e in TESTO SEMPLICE. 
                 NON aggiungere introduzioni, commenti, descrizioni del tuo ragionamento o spiegazioni. 
                 L'output deve contenere SOLO:
 
@@ -155,9 +162,10 @@ if uploaded_file:
                    - Elenco puntato (usa '-') dei benefici e di cosa imparerà il lettore.
                    - Call to action finale.
 
-                2. 10 KEYWORD A CODA LUNGA: 
-                   - Fornisci solo l'elenco delle 10 frasi specifiche separate da virgola.
+                2. 7 KEYWORD A CODA LUNGA: 
+                   - Fornisci solo l'elenco delle 7 frasi specifiche separate da virgola.
                 """
+                # ----------------------------------------------------------
                 
                 resp = client.chat.completions.create(
                     model="gpt-4o",
